@@ -1,9 +1,47 @@
 # cli_rag/llm.py
-from langchain_google_genai import ChatGoogleGenerativeAI
-from .config import LLM_MODEL, os
+import os
+import requests
 
-llm = ChatGoogleGenerativeAI(model=LLM_MODEL, google_api_key=os.environ["GOOGLE_API_KEY"])
+# Pick backend: "gemini" or "ollama"
+LLM_BACKEND = os.getenv("LLM_BACKEND", "gemini").lower()
+
+# For Gemini (Google Generative AI)
+import google.generativeai as genai
+if LLM_BACKEND == "gemini":
+    genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+    gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+
 
 def llm_complete(prompt: str, temperature: float = 0.2) -> str:
-    out = llm.invoke(prompt)
-    return out.content if hasattr(out, "content") else str(out)
+    if LLM_BACKEND == "gemini":
+        resp = gemini_model.generate_content(
+            prompt,
+            generation_config={"temperature": temperature}
+        )
+        return resp.text.strip()
+
+    elif LLM_BACKEND == "ollama":
+        # call local Ollama HTTP API
+        url = "http://localhost:11434/api/generate"
+        payload = {
+            "model": "llama3",
+            "prompt": prompt,
+            "options": {"temperature": temperature},
+        }
+        response = requests.post(url, json=payload, stream=True)
+
+        output = []
+        for line in response.iter_lines():
+            if not line:
+                continue
+            part = line.decode("utf-8")
+            try:
+                data = eval(part)  # JSON lines
+                if "response" in data:
+                    output.append(data["response"])
+            except Exception:
+                pass
+        return "".join(output).strip()
+
+    else:
+        raise ValueError(f"Unknown LLM_BACKEND: {LLM_BACKEND}")
