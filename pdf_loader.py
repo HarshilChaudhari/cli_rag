@@ -4,6 +4,7 @@ from typing import List, Dict
 import fitz  # PyMuPDF
 from pdf2image import convert_from_path
 import pytesseract
+from PyPDF2 import PdfReader
 
 from .store import (
     init_db,
@@ -15,35 +16,65 @@ from .store import (
 
 
 def extract_text_pymupdf(pdf_path: str) -> str:
-    """Extract text from PDF using PyMuPDF."""
-    doc = fitz.open(pdf_path)
-    text = ""
-    for page in doc:
-        text += page.get_text("text")
-    return text.strip()
+    """Extract text using PyMuPDF (fast & reliable)."""
+    try:
+        doc = fitz.open(pdf_path)
+        text = ""
+        for page in doc:
+            text += page.get_text("text")
+        return text.strip()
+    except Exception as e:
+        print(f"⚠️ PyMuPDF failed for {pdf_path}: {e}")
+        return ""
+
+
+def extract_text_pypdf2(pdf_path: str) -> str:
+    """Fallback extractor using PyPDF2."""
+    try:
+        reader = PdfReader(pdf_path)
+        text = "".join([p.extract_text() or "" for p in reader.pages])
+        return text.strip()
+    except Exception as e:
+        print(f"⚠️ PyPDF2 failed for {pdf_path}: {e}")
+        return ""
 
 
 def extract_text_ocr(pdf_path: str) -> str:
-    """Extract text from PDF using OCR (slower)."""
-    pages = convert_from_path(pdf_path)
-    text = ""
-    for img in pages:
-        text += pytesseract.image_to_string(img)
-    return text.strip()
+    """Fallback extractor using OCR (very slow)."""
+    try:
+        pages = convert_from_path(pdf_path)
+        text = ""
+        for img in pages:
+            text += pytesseract.image_to_string(img)
+        return text.strip()
+    except Exception as e:
+        print(f"⚠️ OCR failed for {pdf_path}: {e}")
+        return ""
 
 
-def load_pdf_chunks(pdf_path: str, chunk_size_words=1000, overlap_words=500) -> List[Dict]:
-    """Split PDF into overlapping text chunks (fallbacks: PyMuPDF → OCR)."""
+def extract_text(pdf_path: str) -> str:
+    """Unified text extraction with fallbacks."""
     text = extract_text_pymupdf(pdf_path)
+    if text:
+        print(f"✔️ Extracted text with PyMuPDF: {pdf_path}")
+        return text
 
-    if not text:
-        print(f"⚠️ No text via PyMuPDF, falling back to OCR for {pdf_path}")
-        text = extract_text_ocr(pdf_path)
+    text = extract_text_pypdf2(pdf_path)
+    if text:
+        print(f"✔️ Extracted text with PyPDF2: {pdf_path}")
+        return text
 
-    if not text:
-        print(f"❌ Still no text extracted from {pdf_path}")
-        return []
+    print(f"⚠️ No text via PyMuPDF/PyPDF2, falling back to OCR for {pdf_path}")
+    text = extract_text_ocr(pdf_path)
+    if text:
+        print(f"✔️ Extracted text with OCR: {pdf_path}")
+    else:
+        print(f"❌ Failed to extract any text from {pdf_path}")
+    return text
 
+
+def chunk_text(text: str, chunk_size_words=1000, overlap_words=500) -> List[Dict]:
+    """Split text into overlapping chunks."""
     words = text.split()
     chunks, cid = [], 0
     for i in range(0, len(words), chunk_size_words - overlap_words):
@@ -54,10 +85,9 @@ def load_pdf_chunks(pdf_path: str, chunk_size_words=1000, overlap_words=500) -> 
     return chunks
 
 
-def compute_doc_id(chunks: List[Dict]) -> str:
-    """Stable hash based on content to identify a PDF."""
-    raw_text = "\n".join(c["text"] for c in chunks)
-    return hashlib.md5(raw_text.encode("utf-8")).hexdigest()[:12]
+def compute_doc_id(text: str) -> str:
+    """Stable hash based on raw text."""
+    return hashlib.md5(text.encode("utf-8")).hexdigest()[:12]
 
 
 def load_pdfs(pdf_paths: List[str]) -> List[Dict]:
@@ -69,24 +99,27 @@ def load_pdfs(pdf_paths: List[str]) -> List[Dict]:
     new_docs = []
 
     for path in pdf_paths:
-        chunks = load_pdf_chunks(path)
-        if not chunks:
+        text = extract_text(path)
+        if not text:
+            print(f"⚠️ Skipping {path}, no text extracted.")
             continue
 
-        doc_id = compute_doc_id(chunks)
+        doc_id = compute_doc_id(text)
 
-        # Skip if already stored
+        # Skip if already in DB
         if has_doc(doc_id):
+            print(f"✔️ Already processed: {path} (doc_id={doc_id})")
             continue
 
-        # Add doc_id field
+        # Now chunk properly
+        chunks = chunk_text(text)
         for c in chunks:
             c["doc_id"] = doc_id
 
-        # Store in DB + FAISS
         add_chunks(doc_id, chunks)
         add_embeddings(doc_id, chunks)
 
         new_docs.append({"doc_id": doc_id, "n_chunks": len(chunks), "path": path})
+        print(f"📄 Added {path} (doc_id={doc_id}, {len(chunks)} chunks)")
 
     return new_docs
