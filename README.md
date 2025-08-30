@@ -40,7 +40,7 @@ cli_rag/
 
 ### 1. Clone repository
 ```bash
-git clone https://github.com/<your-username>/<your-repo>.git
+git clone https://github.com/HarshilChaudhari/cli_rag.git
 cd <your-repo>
 ````
 
