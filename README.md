@@ -40,8 +40,8 @@ cli_rag/
 
 ### 1. Clone repository
 ```bash
-git clone https://github.com/<your-username>/<your-repo>.git
-cd <your-repo>
+git clone https://github.com/HarshilChaudhari/cli_rag.git
+cd cli_rag
 ````
 
 ### 2. Install dependencies
