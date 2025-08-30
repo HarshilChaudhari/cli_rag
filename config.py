@@ -13,7 +13,7 @@ load_dotenv()
 LLM_BACKEND = os.getenv("LLM_BACKEND", "gemini").lower()
 
 # GEMINI setup
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyDHSqtbTgyu2DuAHhIHYB_H8Nzs8_Hf1hA")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
 # OLLAMA setup
